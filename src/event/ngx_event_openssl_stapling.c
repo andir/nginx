@@ -50,6 +50,7 @@ struct ngx_ssl_ocsp_ctx_s {
     u_char                      *name;
 
     ngx_uint_t                   naddrs;
+    ngx_uint_t                   naddr;
 
     ngx_addr_t                  *addrs;
     ngx_str_t                    host;
@@ -1025,11 +1026,14 @@ ngx_ssl_ocsp_connect(ngx_ssl_ocsp_ctx_t *ctx)
     ngx_log_debug0(NGX_LOG_DEBUG_EVENT, ctx->log, 0,
                    "ssl ocsp connect");
 
-    /* TODO: use all ip addresses */
+    if (ctx->naddr >= ctx->naddrs) {
+        ngx_ssl_ocsp_error(ctx);
+        return;
+    }
 
-    ctx->peer.sockaddr = ctx->addrs[0].sockaddr;
-    ctx->peer.socklen = ctx->addrs[0].socklen;
-    ctx->peer.name = &ctx->addrs[0].name;
+    ctx->peer.sockaddr = ctx->addrs[ctx->naddr].sockaddr;
+    ctx->peer.socklen = ctx->addrs[ctx->naddr].socklen;
+    ctx->peer.name = &ctx->addrs[ctx->naddr].name;
     ctx->peer.get = ngx_event_get_peer;
     ctx->peer.log = ctx->log;
     ctx->peer.log_error = NGX_ERROR_ERR;
@@ -1173,6 +1177,16 @@ ngx_ssl_ocsp_read_handler(ngx_event_t *rev)
         }
 
         break;
+    }
+
+    if (size == 0 && n == 0) {
+        /* connection did finish early, probably wasn't even established,
+        try again with next address  */
+        if (ctx->naddr < ctx->naddrs) {
+           ctx->naddr += 1;
+           ngx_ssl_ocsp_connect(ctx);
+           return;
+        }
     }
 
     ctx->done = 1;
